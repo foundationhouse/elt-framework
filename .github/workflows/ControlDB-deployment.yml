@@ -5,11 +5,17 @@ jobs:
       runs-on: windows-latest
       steps:
           
-        - name: Get Runner IP
-          id: runner
+        
+        - name: Get runner public IP (PowerShell)
+          id: runner_ip
+          shell: pwsh
           run: |
-            ip=$(curl -s https://api.ipify.org)
-            echo "ip=$ip" >> $GITHUB_OUTPUT
+            $ErrorActionPreference = "Stop"
+            # Use Invoke-RestMethod or curl alias to get the IP
+            $ip = Invoke-RestMethod -Uri 'https://api.ipify.org'
+            # Write the output to GITHUB_OUTPUT (PowerShell syntax)
+            "ip=$ip" | Out-File -FilePath $env:GITHUB_OUTPUT -
+
         
         - name: Whitelist IP in Azure
           uses: azure/CLI@v1
