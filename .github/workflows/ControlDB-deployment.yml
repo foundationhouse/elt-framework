@@ -9,57 +9,53 @@ jobs:
     release:      
       runs-on: windows-latest
       steps:
-          
-        
-        - name: Get runner public IP (PowerShell)
+        - name: Get runner public IP
           id: runner_ip
           shell: pwsh
           run: |
             $ErrorActionPreference = "Stop"
-            # Use Invoke-RestMethod or curl alias to get the IP
             $ip = Invoke-RestMethod -Uri 'https://api.ipify.org'
-            # Write the output to GITHUB_OUTPUT (PowerShell syntax)
-            "ip=$ip" | Out-File -FilePath $env:GITHUB_OUTPUT -
-
-        
-        - name: Whitelist IP in Azure
-          uses: azure/CLI@v1
-          with:
-            inlineScript: |
-              az login --service-principal -u ... -p ... --tenant ...
-              az storage account network-rule add \
-                --resource-group ${{ secrets.RG }} \
-                --account-name ${{ secrets.ACCOUNT }} \
-                --ip-address ${{ steps.runner.outputs.ip }}
-        
-        - name: Deploy artifacts...
-          run: echo "Deploying..."
-        
-        - name: Remove IP from Azure Firewall
-          if: always()
-          uses: azure/CLI@v1
-          with:
-            inlineScript: |
-              az login --service-principal -u ... -p ... --tenant ...
-              az storage account network-rule remove \
-                --resource-group ${{ secrets.RG }} \
-                --account-name ${{ secrets.ACCOUNT }} \
-                --ip-address
-
-        - name: Checkout code 
-          uses: actions/checkout@v3
+            "ip=$ip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+  
+        - name: Azure Login (service principal)
+          shell: pwsh
+          run: |
+            $ErrorActionPreference = "Stop"
+            az login --service-principal `
+              -u "${{ secrets.CLIENT_ID }}" `
+              -p "${{ secrets.CLIENT_SECRET }}" `
+              --tenant "${{ secrets.TENANT_ID }}"
+            az account set --subscription "${{ secrets.SUBSCRIPTION_ID }}"
+  
+        - name: Allow runner IP on Azure SQL Server
+          id: add_sql_fw
+          shell: pwsh
+          run: |
+            $ErrorActionPreference = "Stop"
+            $ip = "${{ steps.runner_ip.outputs.ip }}"
+            $ruleName = "gha-${{ github.run_id }}-${{ github.job }}"
+            az sql server firewall-rule create `
+              --resource-group "${{ secrets.SQL_RG }}" `
+              --server "${{ secrets.SQL_SERVER }}" `
+              --name $ruleName `
+              --start-ip-address $ip `
+              --end-ip-address $ip
+  
+        - name: Checkout code
+          uses: actions/checkout@v4
+  
         - name: Display checkout files and folders
-          run: Get-ChildItem ${{github.workspace}} -Recurse
-        - name: Azure Login
-          uses: Azure/login@v1
-          with:
-           creds: '{"clientId":"${{ secrets.CLIENT_ID }}","clientSecret":"${{ secrets.CLIENT_SECRET }}","subscriptionId":"${{ secrets.SUBSCRIPTION_ID }}","tenantId":"${{ secrets.TENANT_ID }}"}'
+          shell: pwsh
+          run: |
+            $ErrorActionPreference = "Stop"
+            Get-ChildItem ${{ github.workspace }} -Recurse
+  
         - name: Build and Deploy SQL Database
           uses: Azure/sql-action@v2
           with:
-            connection-string: ${{secrets.CONTROLDB_CONNECTIONSTRING}}
-            path: ${{github.workspace}}\elt-framework\ControlDB\ELT\Database.sqlproj
-            action: 'Publish'
+            connection-string: ${{ secrets.CONTROLDB_CONNECTIONSTRING }}
+            path: ${{ github.workspace }}\elt-framework\ControlDB\ELT\Database.sqlproj
+            action: Publish
             arguments: >
               /p:DropPermissionsNotInSource=false
               /p:BlockOnPossibleDataLoss=false
@@ -69,6 +65,22 @@ jobs:
               /p:IgnorePermissions=true
               /p:AllowIncompatiblePlatform=true
               /p:ExcludeObjectTypes=Logins;Users
+  
+        - name: Remove runner IP from SQL Server firewall
+          if: always()
+          shell: pwsh
+          run: |
+            $ErrorActionPreference = "Stop"
+            $ruleName = "gha-${{ github.run_id }}-${{ github.job }}"
+            az sql server firewall-rule delete `
+              --resource-group "${{ secrets.SQL_RG }}" `
+              --server "${{ secrets.SQL_SERVER }}" `
+              --name $ruleName
+  
         - name: Azure Logout
+          shell: pwsh
           run: |
             az logout
+  
+            run: |
+              az logout
