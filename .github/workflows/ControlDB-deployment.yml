@@ -1,12 +1,10 @@
 
 name: ControlDB Deployment
 
-
 on:
   push:
     branches:
       - main
-
 
 jobs:
   release:
@@ -40,6 +38,7 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $ip = "${{ steps.runner_ip.outputs.ip }}"
+          # Rule name tied to this run & job (unique and easy to find)
           $ruleName = "gha-${{ github.run_id }}-${{ github.job }}"
           az sql server firewall-rule create `
             --resource-group "${{ secrets.SQL_RG }}" `
