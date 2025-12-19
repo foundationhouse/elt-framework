@@ -11,7 +11,6 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      # 0) Get runner IP (PowerShell) and expose as output
       - name: Get runner public IP
         id: runner_ip
         shell: pwsh
@@ -20,8 +19,7 @@ jobs:
           $ip = Invoke-RestMethod -Uri 'https://api.ipify.org'
           "ip=$ip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-      # 1) Login to Azure with Service Principal (PowerShell)
-      - name: Azure Login (pwsh)
+      - name: Azure Login (service principal)
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -31,14 +29,12 @@ jobs:
             --tenant "${{ secrets.TENANT_ID }}"
           az account set --subscription "${{ secrets.SUBSCRIPTION_ID }}"
 
-      # 2) Add temporary firewall rule to Azure SQL Server for this runner IP
-      - name: Allow runner IP on SQL Server
+      - name: Allow runner IP on Azure SQL Server
         id: add_sql_fw
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $ip = "${{ steps.runner_ip.outputs.ip }}"
-          # Rule name tied to this run & job (unique and easy to find)
           $ruleName = "gha-${{ github.run_id }}-${{ github.job }}"
           az sql server firewall-rule create `
             --resource-group "${{ secrets.SQL_RG }}" `
@@ -47,16 +43,15 @@ jobs:
             --start-ip-address $ip `
             --end-ip-address $ip
 
-      # 3) Checkout repository
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 4) (Optional) List files for debugging
       - name: Display checkout files and folders
         shell: pwsh
-        run: Get-ChildItem ${{ github.workspace }} -Recurse
+        run: |
+          $ErrorActionPreference = "Stop"
+          Get-ChildItem ${{ github.workspace }} -Recurse
 
-      # 5) Deploy SQL project using Azure/sql-action@v2
       - name: Build and Deploy SQL Database
         uses: Azure/sql-action@v2
         with:
@@ -73,7 +68,6 @@ jobs:
             /p:AllowIncompatiblePlatform=true
             /p:ExcludeObjectTypes=Logins;Users
 
-      # 6) Cleanup: Remove firewall rule (always runs)
       - name: Remove runner IP from SQL Server firewall
         if: always()
         shell: pwsh
@@ -85,7 +79,6 @@ jobs:
             --server "${{ secrets.SQL_SERVER }}" `
             --name $ruleName
 
-      # 7) Logout
       - name: Azure Logout
         shell: pwsh
         run: |
