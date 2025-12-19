@@ -6,26 +6,15 @@ jobs:
       steps:
           
         
-        - name: Get runner public IP (PowerShell)
-          id: runner_ip
+        - name: Whitelist IP with PowerShell (Windows)
           shell: pwsh
           run: |
             $ErrorActionPreference = "Stop"
-            # Use Invoke-RestMethod or curl alias to get the IP
-            $ip = Invoke-RestMethod -Uri 'https://api.ipify.org'
-            # Write the output to GITHUB_OUTPUT (PowerShell syntax)
-            "ip=$ip" | Out-File -FilePath $env:GITHUB_OUTPUT -
+            az login --service-principal -u "${{ secrets.CLIENT_ID }}" -p "${{ secrets.CLIENT_SECRET }}" --tenant "${{ secrets.TENANT_ID }}"
+            az storage account network-rule add `
+              --resource-group "${{ secrets.RG }}" `
+                   --account-name "${{ secrets.ACCOUNT }}" `
 
-        
-        - name: Whitelist IP in Azure
-          uses: azure/CLI@v1
-          with:
-            inlineScript: |
-              az login --service-principal -u ... -p ... --tenant ...
-              az storage account network-rule add \
-                --resource-group ${{ secrets.RG }} \
-                --account-name ${{ secrets.ACCOUNT }} \
-                --ip-address ${{ steps.runner.outputs.ip }}
         
         - name: Deploy artifacts...
           run: echo "Deploying..."
