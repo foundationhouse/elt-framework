@@ -1,86 +1,164 @@
-name: ControlDB Deployment
+name: ControlDB Deployment - Microsoft Fabric
 
-on:
-  push:
-    branches:
-      - main
+on: workflow_dispatch 
 
 jobs:
+
     release:      
+
       runs-on: windows-latest
+
       steps:
-        - name: Get runner public IP
-          id: runner_ip
-          shell: pwsh
-          run: |
-            $ErrorActionPreference = "Stop"
-            $ip = Invoke-RestMethod -Uri 'https://api.ipify.org'
-            "ip=$ip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-  
-        - name: Azure Login (service principal)
-          shell: pwsh
-          run: |
-            $ErrorActionPreference = "Stop"
-            az login --service-principal `
-              -u "${{ secrets.CLIENT_ID }}" `
-              -p "${{ secrets.CLIENT_SECRET }}" `
-              --tenant "${{ secrets.TENANT_ID }}"
-            az account set --subscription "${{ secrets.SUBSCRIPTION_ID }}"
-  
-        - name: Allow runner IP on Azure SQL Server
-          id: add_sql_fw
-          shell: pwsh
-          run: |
-            $ErrorActionPreference = "Stop"
-            $ip = "${{ steps.runner_ip.outputs.ip }}"
-            $ruleName = "gha-${{ github.run_id }}-${{ github.job }}"
-            az sql server firewall-rule create `
-              --resource-group "${{ secrets.SQL_RG }}" `
-              --server "${{ secrets.SQL_SERVER }}" `
-              --name $ruleName `
-              --start-ip-address $ip `
-              --end-ip-address $ip
-  
-        - name: Checkout code
-          uses: actions/checkout@v4
-  
-        - name: Display checkout files and folders
-          shell: pwsh
-          run: |
-            $ErrorActionPreference = "Stop"
-            Get-ChildItem ${{ github.workspace }} -Recurse
-  
-        - name: Build and Deploy SQL Database
-          uses: Azure/sql-action@v2
+
+        - name: Checkout code 
+
+          uses: actions/checkout@v3
+
+        - name: Setup MSBuild
+
+          uses: microsoft/setup-msbuild@v1.1
+
+        - name: Setup .NET SDK
+
+          uses: actions/setup-dotnet@v3
+
           with:
-            connection-string: ${{ secrets.CONTROLDB_CONNECTIONSTRING }}
-            path: ${{ github.workspace }}\elt-framework\ControlDB\ELT\Database.sqlproj
-            action: Publish
-            arguments: >
-              /p:DropPermissionsNotInSource=false
-              /p:BlockOnPossibleDataLoss=false
-              /p:DropRoleMembersNotInSource=false
-              /p:DropObjectsNotInSource=false
-              /p:IgnoreColumnOrder=true
-              /p:IgnorePermissions=true
-              /p:AllowIncompatiblePlatform=true
+
+            dotnet-version: '8.0.x'
+
+        - name: Azure Login
+
+          uses: Azure/login@v1
+
+          with:
+
+           creds: '{"clientId":"${{ secrets.CLIENT_ID }}","clientSecret":"${{ secrets.CLIENT_SECRET }}","subscriptionId":"${{ secrets.SUBSCRIPTION_ID }}","tenantId":"${{ secrets.TENANT_ID }}"}'
+
+        - name: Build Database Project
+
+          run: |
+
+            $solutionPath = "${{github.workspace}}\elt-framework\elt-framework\ControlDB\ControlDB.sln"
+
+            msbuild $solutionPath /p:Configuration=Release /p:Platform="Any CPU" /t:Build
+
+        - name: Find Dacpac File
+
+          id: find-dacpac
+
+          run: |
+
+            $dacpacPath = Get-ChildItem -Path "${{github.workspace}}\elt-framework\elt-framework\ControlDB" -Filter "*.dacpac" -Recurse | Select-Object -First 1 -ExpandProperty FullName
+
+            if ($dacpacPath) {
+
+              Write-Host "Found dacpac: $dacpacPath"
+
+              echo "dacpac-path=$dacpacPath" >> $env:GITHUB_OUTPUT
+
+            } else {
+
+              Write-Error "Dacpac file not found. Build may have failed."
+
+              exit 1
+
+            }
+
+        - name: Install SqlPackage
+
+          id: install-sqlpackage
+
+          run: |
+
+            # Check for SqlPackage in common locations
+
+            $sqlPackagePaths = @(
+
+              "$env:ProgramFiles\Microsoft SQL Server\160\DAC\bin\SqlPackage.exe",
+
+              "$env:ProgramFiles\Microsoft SQL Server\150\DAC\bin\SqlPackage.exe",
+
+              "$env:ProgramFiles (x86)\Microsoft SQL Server\160\DAC\bin\SqlPackage.exe",
+
+              "$env:ProgramFiles (x86)\Microsoft SQL Server\150\DAC\bin\SqlPackage.exe"
+
+            )
+
+            $sqlPackagePath = $null
+
+            foreach ($path in $sqlPackagePaths) {
+
+              if (Test-Path $path) {
+
+                $sqlPackagePath = $path
+
+                Write-Host "Found SqlPackage at: $sqlPackagePath"
+
+                break
+
+              }
+
+            }
+
+            if (-not $sqlPackagePath) {
+
+              Write-Host "SqlPackage not found, downloading..."
+
+              $sqlPackageUrl = "https://aka.ms/sqlpackage/win-x64"
+
+              $sqlPackagePath = "$env:ProgramFiles\Microsoft SQL Server\160\DAC\bin\SqlPackage.exe"
+
+              $sqlPackageDir = Split-Path $sqlPackagePath -Parent
+
+              New-Item -ItemType Directory -Force -Path $sqlPackageDir | Out-Null
+
+              Invoke-WebRequest -Uri $sqlPackageUrl -OutFile "$env:TEMP\sqlpackage.zip"
+
+              Expand-Archive -Path "$env:TEMP\sqlpackage.zip" -DestinationPath $sqlPackageDir -Force
+
+              Write-Host "SqlPackage installed at: $sqlPackagePath"            }
+
+            echo "sqlpackage-path=$sqlPackagePath" >> $env:GITHUB_OUTPUT
+
+        - name: Deploy to Fabric SQL
+
+          run: |
+
+            $sqlPackagePath = "${{ steps.install-sqlpackage.outputs.sqlpackage-path }}"
+
+            $dacpacPath = "${{ steps.find-dacpac.outputs.dacpac-path }}"
+
+            $connectionString = "${{ secrets.CONTROLDB_CONNECTIONSTRING }}"
+
+            Write-Host "Deploying dacpac: $dacpacPath"
+
+            Write-Host "Connection string format: Server=...;Database=...;Authentication=..."
+& $sqlPackagePath /Action:Publish `
+
+              /SourceFile:"$dacpacPath" `
+
+              /TargetConnectionString:"$connectionString" `
+
+              /p:DropPermissionsNotInSource=false `
+
+              /p:BlockOnPossibleDataLoss=false `
+
+              /p:DropRoleMembersNotInSource=false `
+
+              /p:DropObjectsNotInSource=false `
+
+              /p:IgnoreColumnOrder=true `
+
+              /p:IgnorePermissions=true `
+
+              /p:AllowIncompatiblePlatform=true `
+
               /p:ExcludeObjectTypes=Logins;Users
-  
-        - name: Remove runner IP from SQL Server firewall
-          if: always()
-          shell: pwsh
-          run: |
-            $ErrorActionPreference = "Stop"
-            $ruleName = "gha-${{ github.run_id }}-${{ github.job }}"
-            az sql server firewall-rule delete `
-              --resource-group "${{ secrets.SQL_RG }}" `
-              --server "${{ secrets.SQL_SERVER }}" `
-              --name $ruleName
-  
+
         - name: Azure Logout
-          shell: pwsh
+
           run: |
+
             az logout
-  
-            run: |
-              az logout
+
+ 
