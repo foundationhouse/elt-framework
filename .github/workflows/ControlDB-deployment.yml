@@ -47,15 +47,16 @@ jobs:
 
         - name: Find Dacpac File
           id: find-dacpac
+          shell: pwsh
           run: |
-            $dacpacPath = Get-ChildItem -Path "${{github.workspace}}\elt-framework\elt-framework\ControlDB" -Filter "*.dacpac" -Recurse | Select-Object -First 1 -ExpandProperty FullName
-            if ($dacpacPath) {
-              Write-Host "Found dacpac: $dacpacPath"
-              echo "dacpac-path=$dacpacPath" >> $env:GITHUB_OUTPUT
+            $ErrorActionPreference = "Stop"
+            # Search for any .dacpac produced in the repo
+            $dacpac = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Filter *.dacpac -Recurse | Select-Object -First 1
+            if ($dacpac) {
+              Write-Host "Found dacpac: $($dacpac.FullName)"
+              "dacpac-path=$($dacpac.FullName)" | Out-File -FilePath $env:GITHUB      "dacpac-path=$($dacpac.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
             } else {
-              Write-Error "Dacpac file not found. Build may have failed."
-              exit 1
-            }
+              Write-Error "Dacpac file not found. Build may have failed or output path differs."
 
         - name: Install SqlPackage
           id: install-sqlpackage
