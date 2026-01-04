@@ -1,5 +1,11 @@
 name: ControlDB Deployment - Microsoft Fabric
-on: workflow_dispatch 
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # keep manual trigger if you want
+
 jobs:
     release:      
       runs-on: windows-latest
