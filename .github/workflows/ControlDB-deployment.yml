@@ -44,7 +44,23 @@ jobs:
               $sqlproj = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Filter *.sqlproj -Recurse | Select-Object -First 1
               if (-not $sqlproj) { Write-Error "No .sln or .sqlproj found under $env:GITHUB_WORKSPACE"; exit 1 }
             }
-
+            # Use MSBuild from VS2022 on the runner
+            $msbuild = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe"
+            if (-not (Test-Path $msbuild)) {
+              $msbuild = "C:\Program Files\Microsoft Visual Studio\2022\Professional\MSBuild\Current\Bin\MSBuild.exe"
+            }
+            if (-not (Test-Path $msbuild)) {
+              $msbuild = "C:\Program Files\Microsoft Visual Studio\2022\BuildTools\MSBuild\Current\Bin\MSBuild.exe"
+            }
+            if (-not (Test-Path $msbuild)) { Write-Error "MSBuild not found"; exit 1 }
+  
+            if ($sln) {
+              Write-Host "Building solution: $($sln.FullName)"
+              & $msbuild $sln.FullName /p:Configuration=Release /p:Platform="Any CPU" /t:Build /v:m
+            } else {
+              Write-Host "Building sqlproj: $($sqlproj.FullName)"
+              & $msbuild $sqlproj.FullName /p:Configuration=Release /t:Build /v:m
+            }
         - name: Find DACPAC
           id: find-dacpac
           shell: pwsh
