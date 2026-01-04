@@ -85,16 +85,18 @@ jobs:
             sqlpackage /? | Out-Null
             Write-Host "SqlPackage installed."
 
-        - name: Deploy to Fabric SQL
+        - name: Publish DACPAC to Fabric
+          shell: pwsh
           run: |
-            $sqlPackagePath = "${{ steps.install-sqlpackage.outputs.sqlpackage-path }}"
+            $ErrorActionPreference = "Stop"
             $dacpacPath = "${{ steps.find-dacpac.outputs.dacpac-path }}"
             $connectionString = "${{ secrets.CONTROLDB_CONNECTIONSTRING }}"
-
-            Write-Host "Deploying dacpac: $dacpacPath"
-            Write-Host "Connection string format: Server=...;Database=...;Authentication=..." 
-
-            & $sqlPackagePath /Action:Publish `
+  
+            Write-Host "Publishing DACPAC: $dacpacPath"
+            Write-Host "Target: Fabric SQL connection string from secret (ADO.NET)"
+  
+            sqlpackage `
+              /Action:Publish `
               /SourceFile:"$dacpacPath" `
               /TargetConnectionString:"$connectionString" `
               /p:DropPermissionsNotInSource=false `
