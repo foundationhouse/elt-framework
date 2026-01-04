@@ -75,38 +75,15 @@ jobs:
               exit 1
             }
             
-        - name: Install SqlPackage
-          id: install-sqlpackage
+        - name: Install SqlPackage (dotnet global tool)
+          shell: pwsh
           run: |
-            # Check for SqlPackage in common locations
-            $sqlPackagePaths = @(
-              "$env:ProgramFiles\Microsoft SQL Server\160\DAC\bin\SqlPackage.exe",
-              "$env:ProgramFiles\Microsoft SQL Server\150\DAC\bin\SqlPackage.exe",
-              "$env:ProgramFiles (x86)\Microsoft SQL Server\160\DAC\bin\SqlPackage.exe",
-              "$env:ProgramFiles (x86)\Microsoft SQL Server\150\DAC\bin\SqlPackage.exe"
-            )
-            
-            $sqlPackagePath = $null
-            foreach ($path in $sqlPackagePaths) {
-              if (Test-Path $path) {
-                $sqlPackagePath = $path
-                Write-Host "Found SqlPackage at: $sqlPackagePath"
-                break
-              }
-            }
-
-            if (-not $sqlPackagePath) {
-              Write-Host "SqlPackage not found, downloading..."
-              $sqlPackageUrl = "https://aka.ms/sqlpackage/win-x64"
-              $sqlPackagePath = "$env:ProgramFiles\Microsoft SQL Server\160\DAC\bin\SqlPackage.exe"
-              $sqlPackageDir = Split-Path $sqlPackagePath -Parent
-
-              New-Item -ItemType Directory -Force -Path $sqlPackageDir | Out-Null
-              Invoke-WebRequest -Uri $sqlPackageUrl -OutFile "$env:TEMP\sqlpackage.zip"
-              Expand-Archive -Path "$env:TEMP\sqlpackage.zip" -DestinationPath $sqlPackageDir -Force
-              Write-Host "SqlPackage installed at: $sqlPackagePath"            }
-
-            echo "sqlpackage-path=$sqlPackagePath" >> $env:GITHUB_OUTPUT
+            $ErrorActionPreference = "Stop"
+            dotnet tool install --global Microsoft.SqlPackage
+            # Verify on PATH for this session
+            $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
+            sqlpackage /? | Out-Null
+            Write-Host "SqlPackage installed."
 
         - name: Deploy to Fabric SQL
           run: |
