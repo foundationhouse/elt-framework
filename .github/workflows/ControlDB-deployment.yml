@@ -45,19 +45,20 @@ jobs:
               if (-not $sqlproj) { Write-Error "No .sln or .sqlproj found under $env:GITHUB_WORKSPACE"; exit 1 }
             }
 
-        - name: Find Dacpac File
+        - name: Find DACPAC
           id: find-dacpac
           shell: pwsh
           run: |
             $ErrorActionPreference = "Stop"
-            # Search for any .dacpac produced in the repo
             $dacpac = Get-ChildItem -Path $env:GITHUB_WORKSPACE -Filter *.dacpac -Recurse | Select-Object -First 1
             if ($dacpac) {
               Write-Host "Found dacpac: $($dacpac.FullName)"
-              "dacpac-path=$($dacpac.FullName)" | Out-File -FilePath $env:GITHUB      "dacpac-path=$($dacpac.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+              "dacpac-path=$($dacpac.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
             } else {
-              Write-Error "Dacpac file not found. Build may have failed or output path differs."
-
+              Write-Error "DACPAC not found. Build may have failed or output path differs."
+              exit 1
+            }
+            
         - name: Install SqlPackage
           id: install-sqlpackage
           run: |
